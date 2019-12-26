@@ -1,0 +1,19 @@
+{
+  "require": {
+    "hashids/hashids": "^2.0",
+    "ext-json": "*",
+    "ext-redis": "*"
+  },
+  "autoload":{
+    "psr-4": {
+      "server\\": "server/",
+      "src\\": "src/"
+    }
+  },
+  "repositories": {
+    "packagist": {
+      "type": "composer",
+      "url": "https://packagist.phpcomposer.com"
+    }
+  }
+}
