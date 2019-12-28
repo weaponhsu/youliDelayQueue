@@ -3,11 +3,11 @@
 
 namespace server;
 
-use Exception;
+
 use Swoole\Client as SwClient;
+use Exception;
 
-
-class client
+class Remote
 {
     static public $instance = null;
     private $client;
@@ -23,29 +23,32 @@ class client
     }
 
     /**
+     * 调用远程接口
      * @param array $param
      * @throws Exception
      */
-    public function producer($param = []) {
+    public function callRemote($param = []) {
         if (! is_array($param) || empty($param))
             throw new Exception("无效param参数");
-
-        $this->client->send(json_encode($param, true));
-    }
-
-    public function consumer($param = []) {
-        if (! is_array($param) || empty($param) || !isset($param['command']) || $param['command'] != 'pop')
-            throw new Exception("无效param参数");
+        if (! isset($param['data']['url']))
+            throw new Exception("url不存在");
+        if (! isset($param['data']['data']))
+            throw new Exception("data数据不存在");
+        if (! isset($param['data']['method']))
+            throw new Exception("method不存在");
 
         $this->client->send(json_encode($param, true));
     }
 
     /**
+     * @param $host
+     * @param $port
+     * @param $timeout
      * @return $this
      * @throws Exception
      */
-    public function connect() {
-        if (! $this->client->connect(Config::CLIENT_HOST, Config::PORT , Config::TIMEOUT))
+    public function connect($host, $port, $timeout) {
+        if (! $this->client->connect($host, $port , $timeout))
             throw new Exception('无法链接服务器');
 
         return $this;
@@ -57,4 +60,5 @@ class client
 
         return true;
     }
+
 }

@@ -2,12 +2,15 @@
   "require": {
     "hashids/hashids": "^2.0",
     "ext-json": "*",
-    "ext-redis": "*"
+    "ext-redis": "*",
+    "ext-curl": "*",
+    "phpmailer/phpmailer": "^6.1"
   },
   "autoload":{
     "psr-4": {
       "server\\": "server/",
-      "src\\": "src/"
+      "src\\": "src/",
+      "conf\\": "conf/"
     }
   },
   "repositories": {

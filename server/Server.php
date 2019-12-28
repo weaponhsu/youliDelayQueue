@@ -30,40 +30,99 @@
 
 namespace server;
 
+use src\EmailHandler;
 use Swoole\Server as SwServer;
-use src\RedisDelayQueue;
+use src\RedisHandler;
+use src\RemoteHandler;
+use conf\Config;
+use Exception;
+
 
 class Server
 {
     public $server;
+    public $type;
+    public $pid_file;
     public $log_path;
-    public $redis_delay_queue = null;
+    public $redis_handler = null;
+    public $remote_handler = null;
+    public $email_handler = null;
 
-    public function __construct()
+    public function __construct($host, $port, $type)
     {
         date_default_timezone_set("PRC");
-        $this->log_path = realpath(__DIR__) . '/../log/swoole_server' . date('Y-m-d', time()) . '.log';
+        if (! in_array($type, Config::ALLOWED_SERVER_TYPE))
+            throw new Exception("无效type参数");
 
-        $this->server = new SwServer(Config::SERVER_HOST, Config::PORT);
+        $this->type = $type;
+        $this->pid_file = realpath(__DIR__) . '/../bin/' . $this->type . '.pid';
+        $this->log_path = realpath(__DIR__) . '/../log/' . $this->type. '-' . date('Y-m-d', time()) . '.log';
+        $this->server = new SwServer($host, $port);
         $this->server->set([
             'worker_num' => 1,
-            'daemonize' => 0,
+            'daemonize' => 1,
             'max_request' => 10000,
             'task_worker_num' => 1,
             'task_ipc_mode' => 1,
             'log_file' => $this->log_path
         ]);
 
-        $this->redis_delay_queue = RedisDelayQueue::getInstance();
+        if ($this->type == 'remote')
+            $this->remote_handler = RemoteHandler::getInstance();
+        if ($this->type == 'producer')
+            $this->redis_handler = RedisHandler::getInstance();
 
         $this->server->on('Receive', [$this, 'onReceive']);
         // bind callback
         $this->server->on('Task', [$this, 'onTask']);
         $this->server->on('Finish', [$this, 'onFinish']);
-        $this->server->start();
+        // 进程启动与关闭的callback
+        $this->server->on("Start", [$this, 'onStart']);
+        $this->server->on("Shutdown", [$this, 'onShutdown']);
 
+        $this->server->start();
     }
 
+    /**
+     * 进程启动的callback
+     * @param SwServer $server
+     */
+    public function onStart(\Swoole\Server $server) {
+        // 进程启动 将master_pid写入./bin/proeucer.pid中，便于shutdown.sh脚本读取进程号并kill -15
+        file_put_contents($this->pid_file, $this->server->master_pid);
+        self::log($this->log_path,
+            "INFO - " . $this->type . " Server Start!!! master_pid: " . $this->server->master_pid .
+            ", manager_pid: " . $this->server->manager_pid);
+
+        if ($this->type == 'producer') {
+            $current_time = time();
+            $start_time = strtotime(date("Y-m-d H:i:00", $current_time)) + 60;
+            self::log($this->log_path, "INFO - Current time {$current_time} - Start time {$start_time}");
+            self::log($this->log_path, "INFO - Consumer will be started after " . ($start_time - $current_time)  . " seconds");
+        }
+    }
+
+    /**
+     * 进程结束时的callback
+     * @param SwServer $server
+     */
+    public function onShutdown(\Swoole\Server $server) {
+        // 删除进程号文件
+        if (file_exists($this->pid_file))
+            unlink($this->pid_file);
+
+        // 关闭进程 将关闭信息写入日志
+        self::log($this->log_path,
+            'INFO - ' . $this->type . 'Server is shutdown now. master_pid: ' . $this->server->master_pid);
+    }
+
+    /**
+     * 接收到客户端请求的callback
+     * @param SwServer $server
+     * @param $fd
+     * @param $from_id
+     * @param $data
+     */
     public function onReceive(\Swoole\Server $server, $fd, $from_id, $data ) {
         self::log($this->log_path, "INFO - Get Message From Client {$fd}:{$data}");
         $data_arr = json_decode($data, true);
@@ -74,34 +133,55 @@ class Server
 
         // send a task to task worker.
         if ($data_arr['command'] == 'pop') {
-            $server->tick(6000, function () use (&$server, &$data, &$fd) {
+            self::log($this->log_path, "INFO - Consumer will be executed in 60 seconds later");
+            $server->tick(60000, function () use (&$server, &$data, &$fd) {
                 $server->task($data);
             });
         } else
             $server->task($data);
-        $server->task($data);
     }
 
+    /**
+     * 接收到投递任务的callback
+     * @param SwServer $server
+     * @param $task_id
+     * @param $from_id
+     * @param $data
+     * @return int
+     * @throws Exception
+     */
     public function onTask(\Swoole\Server $server, $task_id, $from_id, $data) {
         self::log($this->log_path, "INFO - taskId: $task_id ");
         $data = json_decode($data, true);
 
         $func_name = $data['command'];
-        if (! method_exists($this->redis_delay_queue, $func_name))
-            self::log($this->log_path, "ERROR - $func_name not exists");
+        if ($this->type == 'producer') {
+            if (! method_exists($this->redis_handler, $func_name))
+                self::log($this->log_path, "ERROR - $func_name not exists");
 
-        if (isset($data['data'])) {
+            if (isset($data['data'])) {
+                $param = $data['data'];
+                self::log($this->log_path, "INFO - CALL " . $func_name . ". PARAM: " . json_encode($param));
+                $this->redis_handler->$func_name($param);
+            } else {
+                self::log($this->log_path, "INFO - CALL " . $func_name);
+                $this->redis_handler->$func_name();
+            }
+        } else {
             $param = $data['data'];
             self::log($this->log_path, "INFO - CALL " . $func_name . ". PARAM: " . json_encode($param));
-            $this->redis_delay_queue->$func_name($param);
-        } else {
-            self::log($this->log_path, "INFO - CALL " . $func_name);
-            $this->redis_delay_queue->$func_name();
+            try {
+                $this->remote_handler->$func_name(
+                    $param['url'], $param['data'], $param['method'], $param['headers']);
+            } catch (Exception $exception) {
+                self::log($this->log_path, "ERROR - CALL REMOTE ERROR" . $exception->getMessage());
+            }
         }
-        return true;
+
+        return 234;
     }
 
-    public function onFinish($server, $task_id, $data) {
+    public function onFinish(\Swoole\Server $server, $task_id, $data) {
         self::log($this->log_path, "INFO - Task {$task_id} finish");
         self::log($this->log_path, "INFO - Result: {$data}");
     }
