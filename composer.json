@@ -4,7 +4,8 @@
     "ext-json": "*",
     "ext-redis": "*",
     "ext-curl": "*",
-    "phpmailer/phpmailer": "^6.1"
+    "phpmailer/phpmailer": "^6.1",
+    "ext-bcmath": "*"
   },
   "autoload":{
     "psr-4": {

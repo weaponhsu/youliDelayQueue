@@ -30,6 +30,14 @@ class RedisHandler
         $this->redis = new Redis();
     }
 
+    public function get($name = '') {
+        return isset($this->$name) ? $this->$name : null;
+    }
+
+    public function setString($key, $value) {
+        $this->redis->set($key, $value);
+    }
+
     public function pop() {
         self::log($this->consumer_log_path, 'INFO - PARAM: consumer' . time());
 
@@ -61,10 +69,10 @@ class RedisHandler
                 */
             } catch (Exception $e) {
                 // 设置邮件内容
-                $email_address = '234769003@qq.com';
+                /*$email_address = '234769003@qq.com';
                 $subject = '数据读取失败';
                 $body = $e->getMessage();
-                EmailHandler::getInstance()->mail($email_address, $subject, $body);
+                EmailHandler::getInstance()->mail($email_address, $subject, $body);*/
 
                 switch ($order_data['delay']) {
                     case 0:

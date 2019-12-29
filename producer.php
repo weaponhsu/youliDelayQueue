@@ -12,7 +12,6 @@ $server = new Server(Config::PRODUCER_HOST, Config::PRODUCER_PORT, 'producer');
 $query_param = ['command' => 'pop'];
 
 $client = Consumer::getInstance();
-var_dump($client);
 
 $current_time = time();
 $start_time = strtotime(date("Y-m-d H:i:00", $current_time)) + 60;
@@ -26,6 +25,5 @@ if ($start_time % $current_time != 0) {
         echo $e->getMessage();
     } finally {
         $client->close();
-        echo 'done';
     }
 }

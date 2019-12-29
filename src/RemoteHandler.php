@@ -59,8 +59,8 @@ class RemoteHandler
             $body = $e->getMessage();
         } finally {
             // 发送邮件
-            if ($email_address)
-                EmailHandler::getInstance()->mail($email_address, $subject, $body);
+            /*if ($email_address)
+                EmailHandler::getInstance()->mail($email_address, $subject, $body);*/
         }
     }
 
