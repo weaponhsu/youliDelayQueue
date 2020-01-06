@@ -8,6 +8,7 @@ use Redis;
 use Exception;
 use conf\Config;
 use server\Remote;
+use src\RequestHelper\RollingCurl;
 
 class RedisHandler
 {
@@ -43,7 +44,8 @@ class RedisHandler
 
         $key = strtotime(date('Y-m-d H:i:00', time()));
 
-        $client = Remote::getInstance();
+//        $client = Remote::getInstance();
+        $rc = new RollingCurl();
         $this->connect();
         $this->redis->multi();
         $this->redis->hGetAll($key);
@@ -57,16 +59,24 @@ class RedisHandler
             $order_data = json_decode($order_string, true);
 
             try {
-                throw new Exception('ddd');
-                /*
+//                throw new Exception('ddd');
                 // 调用接口 获取返回结果
-                list($resp_code, $header_size, $resp_body) =
+                /*list($resp_code, $header_size, $resp_body) =
                     RequestHelper::curlRequest($order_data['url'], $order_data['data'],
                         $order_data['method'], $order_data['headers'], false, 30, true);
                 self::log($this->log_path, "INFO - response: response_code: $resp_code, response_body:" . $resp_code . ", header_size: $header_size");
                 $resp_body = substr($resp_body, $header_size);
-                self::log($this->log_path, "INFO - response body: " . trim($resp_body));
-                */
+                self::log($this->log_path, "INFO - response body: " . trim($resp_body));*/
+
+                self::log($this->log_path, "INFO - request data: " . json_encode($order_data));
+                $rc->request(
+                    $order_data['method'] == 'get' ? $order_data['url'] . '?' . $order_data['data'] : $order_data['url'],
+                    $order_data['method'],
+                    $order_data['method'] == 'get' ? [] : $order_data['data'],
+                    isset($order_data['headers']) ? $order_data['headers'] : [],
+                    isset($order_data['options']) ? $order_data['options'] : null);
+                list($info, $response) = $rc->execute();
+                self::log($this->log_path, "INFO - response header: " . json_encode($info) . " response body: " . $response);
             } catch (Exception $e) {
                 // 设置邮件内容
                 /*$email_address = '234769003@qq.com';

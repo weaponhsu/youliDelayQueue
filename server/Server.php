@@ -48,6 +48,13 @@ class Server
     public $remote_handler = null;
     public $email_handler = null;
 
+    /**
+     * Server constructor.
+     * @param $host
+     * @param $port
+     * @param $type
+     * @throws Exception
+     */
     public function __construct($host, $port, $type)
     {
         date_default_timezone_set("PRC");
@@ -60,7 +67,7 @@ class Server
         $this->server = new SwServer($host, $port);
         $this->server->set([
             'worker_num' => 1,
-            'daemonize' => 1,
+            'daemonize' => 0,
             'max_request' => 10000,
             'task_worker_num' => 1,
             'task_ipc_mode' => 1,
@@ -151,7 +158,7 @@ class Server
      * @throws Exception
      */
     public function onTask(\Swoole\Server $server, $task_id, $from_id, $data) {
-        self::log($this->log_path, "INFO - taskId: $task_id ");
+        self::log($this->log_path, "INFO - taskId: $task_id from_id: $from_id");
         $data = json_decode($data, true);
 
         $func_name = $data['command'];
@@ -167,18 +174,35 @@ class Server
                 self::log($this->log_path, "INFO - CALL " . $func_name);
                 $this->redis_handler->$func_name();
             }
+
+            return true;
         } else {
             $param = $data['data'];
             self::log($this->log_path, "INFO - CALL " . $func_name . ". PARAM: " . json_encode($param));
             try {
-                $this->remote_handler->$func_name(
-                    $param['url'], $param['data'], $param['method'], $param['headers']);
+                $callback = null;
+                if ($data['platform'] == 'pdd' && $data['action'] == 'check_order_status') {
+                    // 调用拼多多订单状态查询接口
+                    $res = $this->remote_handler->$func_name(
+                        $param['url'], $param['data'], $param['method'], $param['headers'],
+                        isset($param['options']) ? $param['options'] : null, 'pddOrderStatus');
+
+                    self::log($this->log_path, "INFO - pdd check_order_status: {$res}");
+                    // 将拼多多订单状态查询接口的返回结果发回客户端指定的服务器
+                    $r = $this->remote_handler->$func_name(
+                        $data['callback']['url'], $data['callback']['data'] . '&result=' . $res, $data['callback']['method'],
+                        $headers = [], $option = null, 'notifyClient'
+                    );
+
+                    self::log($this->log_path, "INFO - pdd callback: {$r}");
+
+                    return $r;
+                }
+
             } catch (Exception $exception) {
                 self::log($this->log_path, "ERROR - CALL REMOTE ERROR" . $exception->getMessage());
             }
         }
-
-        return 234;
     }
 
     public function onFinish(\Swoole\Server $server, $task_id, $data) {
@@ -193,5 +217,3 @@ class Server
     }
 
 }
-
-//$server = new AsynServer();

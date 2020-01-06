@@ -7,12 +7,17 @@ namespace src;
 use conf\Config;
 use Exception;
 use server\Remote;
+use src\RequestHelper\RollingCurl;
 
 class RemoteHandler
 {
     static public $instance = null;
+    public $rc = null;
     public $log_path = null;
 
+    /**
+     * @return RemoteHandler|null
+     */
     static public function getInstance() {
         if (is_null(self::$instance))
             self::$instance = new self();
@@ -20,9 +25,13 @@ class RemoteHandler
         return self::$instance;
     }
 
+    /**
+     * RemoteHandler constructor.
+     */
     private function __construct() {
         date_default_timezone_set("PRC");
         $this->log_path = realpath(__DIR__) . '/../log/remote_handler-' . date('Y-m-d', time()) . '.log';
+        $this->rc = RollingCurlHandler::getInstance();
     }
 
     /**
@@ -30,24 +39,25 @@ class RemoteHandler
      * @param $data
      * @param string $method
      * @param array $headers
-     * @throws Exception
+     * @param null $option
+     * @param null $callback
+     * @return bool|string|null
      */
-    public function callRemote($url, $data, $method = 'GET', $headers = []) {
+    public function callRemote($url, $data, $method = 'GET', $headers = [], $option = null, $callback = null) {
+        self::log($this->log_path, "INFO - call remote: param: " . json_encode(func_get_args()));
         self::log($this->log_path, "INFO - call remote: url: $url, data:" . json_encode($data) . ", method: $method, headers:" . json_encode($headers));
-        $email_address = null;
+        $email_address = $result = null;
         try {
             // 判断参数
             if (empty($url))
                 throw new Exception("url不能为空");
-            if (empty($data))
+            if (empty($data) && $method == 'POST')
                 throw new Exception("参数不能为空");
 
             // 调用接口 获取返回结果
-            list($resp_code, $header_size, $resp_body) =
-                RequestHelper::curlRequest($url, $data, $method, $headers, false, 30, true);
-            self::log($this->log_path, "INFO - response: response_code: $resp_code, response_body:" . $resp_code . ", header_size: $header_size");
-            $resp_body = substr($resp_body, $header_size);
-            self::log($this->log_path, "INFO - response body: " . trim($resp_body));
+            $this->rc->setCallback($callback);
+            $result = $this->rc->run($url, $method, $data, $headers, $option);
+            self::log($this->log_path, "INFO - response status:" . json_encode($result));
 
             // 设置邮件内容
             $email_address = '234769003@qq.com';
@@ -61,6 +71,8 @@ class RemoteHandler
             // 发送邮件
             /*if ($email_address)
                 EmailHandler::getInstance()->mail($email_address, $subject, $body);*/
+
+            return $result;
         }
     }
 
