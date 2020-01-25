@@ -9,6 +9,7 @@ use conf\Config;
 $server = new Server(Config::PRODUCER_HOST, Config::PRODUCER_PORT, 'producer');
 
 // 启动consumer
+/*
 $query_param = ['command' => 'pop'];
 
 $client = Consumer::getInstance();
@@ -27,3 +28,4 @@ if ($start_time % $current_time != 0) {
         $client->close();
     }
 }
+*/

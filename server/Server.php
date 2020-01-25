@@ -36,6 +36,7 @@ use src\RedisHandler;
 use src\RemoteHandler;
 use conf\Config;
 use Exception;
+use youliPhpLib\Common\RsaOperation;
 
 
 class Server
@@ -67,7 +68,7 @@ class Server
         $this->server = new SwServer($host, $port);
         $this->server->set([
             'worker_num' => 1,
-            'daemonize' => 0,
+            'daemonize' => 1,
             'max_request' => 10000,
             'task_worker_num' => 1,
             'task_ipc_mode' => 1,
@@ -105,7 +106,7 @@ class Server
             $current_time = time();
             $start_time = strtotime(date("Y-m-d H:i:00", $current_time)) + 60;
             self::log($this->log_path, "INFO - Current time {$current_time} - Start time {$start_time}");
-            self::log($this->log_path, "INFO - Consumer will be started after " . ($start_time - $current_time)  . " seconds");
+//            self::log($this->log_path, "INFO - Consumer will be started after " . ($start_time - $current_time)  . " seconds");
         }
     }
 
@@ -197,6 +198,46 @@ class Server
                     self::log($this->log_path, "INFO - pdd callback: {$r}");
 
                     return $r;
+                } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_user_address') {
+                    $res = $this->remote_handler->$func_name(
+                        $param['url'], $param['data'], $param['method'], $param['headers'],
+                        isset($param['options']) ? $param['options'] : null, 'parsePddAddress');
+
+                    // 将拼多多收货地址接口的返回结果发回客户端指定的服务器
+                    if (strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
+
+                        self::log($this->log_path, "INFO - pdd check_user_address: {" . json_encode($res) . "}");
+
+                        if ($data['callback']['data'])
+                            $param = array_merge($data['callback']['data'], $res);
+                        else
+                            $param = $res;
+
+                        self::log($this->log_path, "INFO - pdd check_user_address param: " . json_encode($param) . "");
+
+                        $rsa = RsaOperation::getInstance(Config::PUBLIC_PEM, Config::PRIVATE_PEM);
+
+                        $param = 'secret=' . urlencode($rsa->publicEncrypt($param));
+                    } else {
+                        self::log($this->log_path, "INFO - pdd check_user_address: {$res}");
+                        $param = $data['callback']['data'] . '&' . $res;
+                    }
+                    $r = $this->remote_handler->$func_name(
+                        $data['callback']['url'], $param, $data['callback']['method'],
+                        isset($data['callback']['headers']) ? $data['callback']['headers'] : [],
+                        isset($data['callback']['options']) ? $data['callback']['options'] : null,
+                        'notifyClient');
+
+                    return $r;
+                } else {
+                    $res = $this->remote_handler->$func_name(
+                        $param['url'], $param['data'], $param['method'],
+                        isset($param['headers']) ? $param['headers'] : [],
+                        isset($param['options']) ? $param['options'] : null, 'notifyClient');
+
+                    self::log($this->log_path, "INFO - pdd default: {$res}");
+
+                    return $res;
                 }
 
             } catch (Exception $exception) {

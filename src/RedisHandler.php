@@ -44,6 +44,118 @@ class RedisHandler
 
         $key = strtotime(date('Y-m-d H:i:00', time()));
 
+        $this->connect();
+        $res = $this->redis->hGetAll($key);
+
+        $job_id_arr = $urls = $data = $headers = $options = $methods = $callback = $curl_res = [];
+        if ($res) {
+            foreach ($res as $job_id => $data_json_str) {
+                $job_data = json_decode($data_json_str, true);
+                self::log($this->consumer_log_path, 'INFO - job data: ' . json_encode($job_data));
+                array_push($urls, $job_data['url']);
+                array_push($methods, $job_data['method']);
+                array_push($data, $job_data['data']);
+                array_push($headers, isset($job_data['headers']) ? $job_data['headers'] : []);
+                array_push($options, isset($job_data['options']) ? $job_data['options'] : null);
+                array_push($callback, isset($job_data['callback']) ? $job_data['callback'] : null);
+            }
+            $job_id_arr = array_keys($res);
+            self::log($this->consumer_log_path, "INFO - job_id_arr: " . json_encode($job_id_arr));
+            self::log($this->consumer_log_path, "INFO - callback: " . json_encode($callback));
+            self::log($this->consumer_log_path, "INFO - urls: " . json_encode($urls));
+            self::log($this->consumer_log_path, "INFO - methods: " . json_encode($methods));
+            self::log($this->consumer_log_path, "INFO - data: " . json_encode($data));
+            self::log($this->consumer_log_path, "INFO - headers: " . json_encode($headers));
+            self::log($this->consumer_log_path, "INFO - options: " . json_encode($options));
+        }
+
+        if ($job_id_arr) {
+            $this->redis->multi();
+            $this->redis->del($key);
+
+            $rc = new RollingCurlHandler();
+            $rc->setCallback("notifyClient");
+            $curl_res = null;
+
+            if (count($job_id_arr) == 1) {
+                $curl_res[] = $rc->run($urls[0], $methods[0], $data[0], !empty($headers) ? $headers[0] : $headers, $options[0]);
+            } else if (count($job_id_arr) >= 2) {
+                $curl_res = $rc->multiRun($urls, $methods, $data, $headers, $options);
+            }
+            self::log($this->consumer_log_path, "INFO - request_result: " . json_encode($curl_res));
+            self::log($this->consumer_log_path, "DEBUG - curl_res length: " . count($curl_res));
+        }
+
+        if ($curl_res) {
+            foreach ($curl_res as $idx => $request_result) {
+                list($request_res, $request) = $request_result;
+                self::log($this->consumer_log_path, "INFO - idx: " . $idx . ". request: " . json_encode($request) . ". response: " . json_encode($request_res));
+                if ($request_res == 'success') {
+                    self::log($this->consumer_log_path, "INFO - remote return success");
+                    continue;
+                }
+
+                $data_idx = array_search($request->post_data, $data);
+                self::log($this->consumer_log_path, "INFO - data_idx: " . json_encode($data_idx));
+                self::log($this->consumer_log_path, "INFO - urls: " . json_encode([$urls[$data_idx], $request->url, $urls[$data_idx] == $request->url]));
+
+                if ($data_idx === false && $urls[$data_idx] !== $request->url) {
+                    self::log($this->consumer_log_path, "ERROR - remote return success");
+                    continue;
+                }
+
+                $job_id = isset($job_id_arr[$data_idx]) ? $job_id_arr[$data_idx] : false;
+                self::log($this->consumer_log_path, "INFO - job_id: " . $job_id);
+                if ($job_id === false) {
+                    self::log($this->consumer_log_path, "ERROR - job_id not exists");
+                    continue;
+                }
+
+                self::log($this->consumer_log_path, "INFO - order_data: " . $res[$job_id]);
+                $order_data = json_decode($res[$job_id], true);
+
+                switch ($order_data['delay']) {
+                    case 0:
+                        $delay = 60;
+                        break;
+                    case 60:
+                        $delay = 300;
+                        break;
+                    case 300:
+                        $delay = 600;
+                        break;
+                    case 900:
+                        $delay = 1800;
+                        break;
+                    case 1800:
+                        $delay = 3600;
+                        break;
+                    default:
+                        $delay = false;
+                        break;
+                }
+
+                if ($delay !== false) {
+                    $order_data['delay'] = $delay;
+                    self::log($this->consumer_log_path, "INFO - delay: $delay");
+                    self::log($this->consumer_log_path, "INFO - key: " . (int)($key + $delay));
+                    $this->redis->HSetnx((int)($key + $delay), $job_id, json_encode($order_data));
+                    $this->redis->expire((int)($key + $delay), (string)($key + $delay + 120));
+                }
+            }
+        } else
+            self::log($this->consumer_log_path, "ERROR - curl_res length: " . count($curl_res));
+        $result = $this->redis->exec();
+        $this->close();
+
+        self::log($this->consumer_log_path, "INFO - RESULT: " . json_encode($result));
+    }
+
+    public function pop1() {
+        self::log($this->consumer_log_path, 'INFO - PARAM: consumer' . time());
+
+        $key = strtotime(date('Y-m-d H:i:00', time()));
+
 //        $client = Remote::getInstance();
         $rc = new RollingCurl();
         $this->connect();
@@ -61,12 +173,6 @@ class RedisHandler
             try {
 //                throw new Exception('ddd');
                 // 调用接口 获取返回结果
-                /*list($resp_code, $header_size, $resp_body) =
-                    RequestHelper::curlRequest($order_data['url'], $order_data['data'],
-                        $order_data['method'], $order_data['headers'], false, 30, true);
-                self::log($this->log_path, "INFO - response: response_code: $resp_code, response_body:" . $resp_code . ", header_size: $header_size");
-                $resp_body = substr($resp_body, $header_size);
-                self::log($this->log_path, "INFO - response body: " . trim($resp_body));*/
 
                 self::log($this->log_path, "INFO - request data: " . json_encode($order_data));
                 $rc->request(

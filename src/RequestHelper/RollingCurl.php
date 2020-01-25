@@ -156,11 +156,9 @@ class RollingCurl {
     }
 
     /**
-     * 执行
-     *
      * @param null $window_size
-     * @return bool|string
-     * @throws RollingCurlException
+     * @return array|bool
+     * @throws \src\RequestHelper\RollingCurlException
      */
     public function execute($window_size = null) {
         // rolling curl window must always be greater than 1
@@ -189,7 +187,7 @@ class RollingCurl {
         if ($this->callback) {
             $callback = $this->callback;
             if (is_callable($this->callback)){
-                call_user_func($callback, $output, $info, $request);
+                return call_user_func($callback, $output, $info, $request);
             }
         }
         else
@@ -203,7 +201,7 @@ class RollingCurl {
      * @access private
      * @throws RollingCurlException
      * @param int $window_size Max number of simultaneous connections
-     * @return bool
+     * @return bool|array
      */
     private function rolling_curl($window_size = null) {
         if ($window_size)
@@ -226,6 +224,7 @@ class RollingCurl {
             $key = (string) $ch;
             $this->requestMap[$key] = $i;
         }
+        $res = [];
         do {
             while(($execrun = curl_multi_exec($master, $running)) == CURLM_CALL_MULTI_PERFORM);
             if($execrun != CURLM_OK)
@@ -241,7 +240,8 @@ class RollingCurl {
                     $key = (string)$done['handle'];
                     $request = $this->requests[$this->requestMap[$key]];
                     unset($this->requestMap[$key]);
-                    call_user_func($callback, $output, $info, $request);
+//                    call_user_func($callback, $output, $info, $request);
+                    array_push($res, call_user_func($callback, $output, $info, $request));
                 }
                 // start a new request (it's important to do this before removing the old one)
                 if ($i < sizeof($this->requests) && isset($this->requests[$i]) && $i < count($this->requests)) {
@@ -262,7 +262,9 @@ class RollingCurl {
                 curl_multi_select($master, $this->timeout);
         } while ($running);
         curl_multi_close($master);
-        return true;
+//        return true;
+
+        return $res;
     }
 
     /**
@@ -279,6 +281,9 @@ class RollingCurl {
             $options[CURLOPT_MAXREDIRS] = 5;
         }
         $headers = $this->__get('headers');
+        // 将类中的header与$request中的header进行合并
+//        if (!empty($request->headers))
+//            $headers = array_merge($request->headers, $headers);
         // append custom options for this specific request
         if ($request->options) {
             $options = $request->options + $options;

@@ -31,7 +31,7 @@ class RemoteHandler
     private function __construct() {
         date_default_timezone_set("PRC");
         $this->log_path = realpath(__DIR__) . '/../log/remote_handler-' . date('Y-m-d', time()) . '.log';
-        $this->rc = RollingCurlHandler::getInstance();
+        $this->rc = new RollingCurlHandler();
     }
 
     /**

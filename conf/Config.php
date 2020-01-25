@@ -42,4 +42,11 @@ class Config
     // hash_ids的相关配置
     const SALT = '123456';
     const MIN_HASH_LENGTH = 32;
+
+    // 需要加密的域名
+    const SECRET_DOMAIN = 'http://www.pddnew.com';
+
+    // rsa加密
+    CONST PUBLIC_PEM = "/Users/huangxu/PhpstormProjects/pddNew/cacert/public_key.pem";
+    CONST PRIVATE_PEM = "/Users/huangxu/PhpstormProjects/pddNew/cacert/private_key.pem";
 }

@@ -5,6 +5,7 @@ namespace src;
 
 use src\RequestHelper\RollingCurl;
 use src\RequestHelper\RollingCurlException;
+use src\RequestHelper\RollingCurlRequest;
 
 class RollingCurlHandler
 {
@@ -22,6 +23,9 @@ class RollingCurlHandler
             // 调用指定服务器的只能返回success或error的接口
             case 'notifyClient':
                 $callback_func = [$this, 'notifyClient'];
+                break;
+            case 'parsePddAddress':
+                $callback_func = [$this, 'parsePddAddress'];
                 break;
             // 默认调用pdd单比订单状态查询
             default:
@@ -45,11 +49,31 @@ class RollingCurlHandler
     /**
      * RollingCurlHandler constructor.
      */
-    private function __construct() {
+    public function __construct() {
         $this->log_path = realpath(__DIR__) . '/../log/curl_handler-' . date('Y-m-d', time()) . '.log';
         $this->rc = new RollingCurl();
     }
 
+    /**
+     * @param array $urls
+     * @param array $methods
+     * @param array $data
+     * @param array $headers
+     * @param array $options
+     * @return array|bool
+     * @throws RollingCurlException
+     */
+    public function multiRun($urls = [], $methods = [], $data = [], $headers = [], $options = []) {
+        foreach ($urls as $idx => $url) {
+            $request = new RollingCurlRequest($url,
+                isset($methods[$idx]) ? $methods[$idx] : 'GET',
+                isset($data[$idx]) ? $data[$idx] : [],
+                isset($headers[$idx]) ? $headers[$idx] : [],
+                isset($options[$idx]) ? $options[$idx] : null);
+            $this->rc->add($request);
+        }
+        return $this->rc->execute();
+    }
     /**
      * @param $url
      * @param $method
@@ -76,11 +100,43 @@ class RollingCurlHandler
      */
     public function notifyClient($response, $info, $request) {
         self::log($this->log_path, "INFO - call notifyClient");
+        self::log($this->log_path, "INFO - info " . json_encode($info));
+        self::log($this->log_path, "INFO - request " . json_encode($request));
+        self::log($this->log_path, "INFO - response " . $response);
 
         if ($info['http_code'] != '200')
             throw new RollingCurlException("http code不为200");
 
-        return in_array($response, ['error', 'success']) === true ? $response : false;
+        return in_array($response, ['error', 'success']) === true ? [$response, $request] : false;
+    }
+
+    public function parsePddAddress($response, $info, $request) {
+        self::log($this->log_path, "INFO - call parsePddAddress");
+        self::log($this->log_path, "INFO - info " . json_encode($info));
+        self::log($this->log_path, "INFO - request " . json_encode($request));
+        self::log($this->log_path, "INFO - response " . json_encode($response));
+
+        if ($info['http_code'] != '200')
+            throw new RollingCurlException("http code不为200");
+
+        if (preg_match('/window.rawData=(.*)"}};/', $response, $matches)) {
+            $data = $matches[1] . '"}}';
+            if (false !== $data = json_decode($data, true)) {
+                $address_arr = [];
+                foreach ($data['store']['addressList'] as $address) {
+                    if ($address['isDefault'] == 1) {
+                        $address_arr = [
+                            'address_id' => $address['addressId'],
+                            'address' => $address['province'] . $address['city'] . $address['district'] . $address['address'],
+                            'uid' => $address['uid']
+                        ];
+                    }
+                }
+                return $address_arr;
+            } else
+                throw new RollingCurlException("无法登陆并获取收货地址");
+        } else
+            throw new RollingCurlException("未知状态");
     }
 
     /**
@@ -93,6 +149,9 @@ class RollingCurlHandler
      */
     public function parsePddOrderStatus($response, $info, $request) {
         self::log($this->log_path, "INFO - call parsePddOrderStatus");
+        self::log($this->log_path, "INFO - info " . json_encode($info));
+        self::log($this->log_path, "INFO - request " . json_encode($request));
+        self::log($this->log_path, "INFO - response " . json_encode($response));
 
         if ($info['http_code'] != '200')
             throw new RollingCurlException("http code不为200");

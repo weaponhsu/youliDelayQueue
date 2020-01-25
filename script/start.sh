@@ -7,5 +7,10 @@ tool=php
 # exec_dir=/path/to/project
 # tool=php
 
+# 启动生产者进程
 file_name=producer.php
 $tool $file_name
+
+# 启动消费者进程
+consumer_name=consumer.php
+$tool $consumer_name
