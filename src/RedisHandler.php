@@ -47,7 +47,7 @@ class RedisHandler
         $this->connect();
         $res = $this->redis->hGetAll($key);
 
-        $job_id_arr = $urls = $data = $headers = $options = $methods = $callback = $curl_res = [];
+        $job_id_arr = $urls = $data = $headers = $options = $methods = $callback = $curl_res = $notify_info = [];
         if ($res) {
             foreach ($res as $job_id => $data_json_str) {
                 $job_data = json_decode($data_json_str, true);
@@ -58,6 +58,7 @@ class RedisHandler
                 array_push($headers, isset($job_data['headers']) ? $job_data['headers'] : []);
                 array_push($options, isset($job_data['options']) ? $job_data['options'] : null);
                 array_push($callback, isset($job_data['callback']) ? $job_data['callback'] : null);
+                array_push($notify_info, isset($job_data['notify_info']) ? $job_data['notify_info']: null);
             }
             $job_id_arr = array_keys($res);
             self::log($this->consumer_log_path, "INFO - job_id_arr: " . json_encode($job_id_arr));
@@ -67,6 +68,7 @@ class RedisHandler
             self::log($this->consumer_log_path, "INFO - data: " . json_encode($data));
             self::log($this->consumer_log_path, "INFO - headers: " . json_encode($headers));
             self::log($this->consumer_log_path, "INFO - options: " . json_encode($options));
+            self::log($this->consumer_log_path, "INFO - notify_info: " . json_encode($notify_info));
         }
 
         if ($job_id_arr) {
@@ -90,13 +92,38 @@ class RedisHandler
             foreach ($curl_res as $idx => $request_result) {
                 list($request_res, $request) = $request_result;
                 self::log($this->consumer_log_path, "INFO - idx: " . $idx . ". request: " . json_encode($request) . ". response: " . json_encode($request_res));
+                $data_idx = array_search($request->post_data, $data);
+                self::log($this->consumer_log_path, "INFO - data_idx: " . json_encode($data_idx));
                 if ($request_res == 'success') {
                     self::log($this->consumer_log_path, "INFO - remote return success");
+                    // 远程接口返回的结果需要转发到另一台服务器
+                    if (false !== $notify = $notify_info[$data_idx]) {
+                        $notify = $notify_info[$data_idx];
+                        self::log($this->consumer_log_path, "INFO - notify info: " . json_encode($notify));
+                        self::log($this->consumer_log_path, "INFO - notify info: " . json_encode([isset($notify['url']) && !empty($notify['url']),
+                                isset($notify['method']) && !empty($notify['method'])]));
+                        if ((isset($notify['url']) && !empty($notify['url'])) &&
+                            (isset($notify['method']) && !empty($notify['method']))) {
+
+                            $data = [];
+                            if (isset($notify['data'])) {
+                                $data = $notify['data'];
+                                $data['result'] = $request_res;
+                            }
+                            self::log($this->consumer_log_path, "INFO - notify data: " . json_encode($data));
+
+                            $remote_result = RemoteHandler::getInstance()->callRemote($notify['url'], http_build_query($data),
+                                $notify['method'],
+                                isset($notify['header']) ? $notify['header'] : [],
+                                isset($notify['option']) ? $notify['option'] : null,
+                                isset($notify['callback']) ? $notify['callback'] : 'notifyClient');
+
+                            self::log($this->consumer_log_path, "INFO - notify result: " . json_encode($remote_result));
+                        }
+                    }
                     continue;
                 }
 
-                $data_idx = array_search($request->post_data, $data);
-                self::log($this->consumer_log_path, "INFO - data_idx: " . json_encode($data_idx));
                 self::log($this->consumer_log_path, "INFO - urls: " . json_encode([$urls[$data_idx], $request->url, $urls[$data_idx] == $request->url]));
 
                 if ($data_idx === false && $urls[$data_idx] !== $request->url) {
@@ -236,6 +263,9 @@ class RedisHandler
         $key = strtotime(date('Y-m-d H:i:00', time()));
         if ($param['delay'] == 0)
             $key = $key + 60;
+        else
+            $key = $key + $param['delay'];
+
         $this->redis->HSetnx($key, $param['job_id'], json_encode($param));
         $result = $this->redis->exec();
         $this->close();

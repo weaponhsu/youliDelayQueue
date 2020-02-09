@@ -27,6 +27,9 @@ class RollingCurlHandler
             case 'parsePddAddress':
                 $callback_func = [$this, 'parsePddAddress'];
                 break;
+            case 'parsePddGoods':
+                $callback_func = [$this, 'parsePddGoods'];
+                break;
             // 默认调用pdd单比订单状态查询
             default:
                 $callback_func = [$this, 'parsePddOrderStatus'];
@@ -110,6 +113,35 @@ class RollingCurlHandler
         return in_array($response, ['error', 'success']) === true ? [$response, $request] : false;
     }
 
+    public function parsePddGoods($response, $info, $request) {
+        self::log($this->log_path, "INFO - call parsePddGoods");
+        self::log($this->log_path, "INFO - info " . json_encode($info));
+        self::log($this->log_path, "INFO - request " . json_encode($request));
+        self::log($this->log_path, "INFO - response " . json_encode($response));
+
+        if ($info['http_code'] != '200')
+            throw new RollingCurlException("http code不为200");
+
+        if (preg_match('/window.rawData=(.*)"}}};/', $response, $matches)) {
+            self::log($this->log_path, "INFO - matches " . json_encode($matches));
+            $data = $matches[1] . '"}}}';
+            self::log($this->log_path, "INFO - raw data " . $data);
+            if (false !== $data = json_decode($data, true)) {
+                $goods_data = [
+                    'goods_id' => $data['store']['initDataObj']['goods']['goodsID'],
+                    'goods_name' => $data['store']['initDataObj']['goods']['goodsName'],
+                    'group_id' => $data['store']['initDataObj']['goods']['groupTypes'][0]['groupID'],
+                    'sku_id' => $data['store']['initDataObj']['goods']['skus'][0]['skuID'],
+                    'normal_price' => $data['store']['initDataObj']['goods']['skus'][0]['normalPrice']
+                ];
+                self::log($this->log_path, "INFO - goods data " . json_encode($goods_data));
+                return $goods_data;
+            } else
+                throw new RollingCurlException("无法登陆并获取收货地址");
+        } else
+            throw new RollingCurlException("未知状态");
+    }
+
     public function parsePddAddress($response, $info, $request) {
         self::log($this->log_path, "INFO - call parsePddAddress");
         self::log($this->log_path, "INFO - info " . json_encode($info));
@@ -159,7 +191,7 @@ class RollingCurlHandler
         if (! preg_match('/"chatStatusPrompt":"([^"]*)"/', $response, $matches))
             throw new RollingCurlException("未知状态");
 
-        return $matches[1];
+        return [$matches[1], $request];
     }
 
     static protected function log($log_path = null, $content = '') {

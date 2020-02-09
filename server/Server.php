@@ -184,20 +184,32 @@ class Server
                 $callback = null;
                 if ($data['platform'] == 'pdd' && $data['action'] == 'check_order_status') {
                     // 调用拼多多订单状态查询接口
-                    $res = $this->remote_handler->$func_name(
+                    list($request_res, $request) = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
                         isset($param['options']) ? $param['options'] : null, 'pddOrderStatus');
 
-                    self::log($this->log_path, "INFO - pdd check_order_status: {$res}");
-                    // 将拼多多订单状态查询接口的返回结果发回客户端指定的服务器
-                    $r = $this->remote_handler->$func_name(
-                        $data['callback']['url'], $data['callback']['data'] . '&result=' . $res, $data['callback']['method'],
-                        $headers = [], $option = null, 'notifyClient'
-                    );
+                    self::log($this->log_path, "INFO - pdd check_order_status: {$request_res}, request: " . json_encode($request_res));
 
-                    self::log($this->log_path, "INFO - pdd callback: {$r}");
+                    if (isset($data['callback']) && (isset($data['callback']['url']) && !empty($data['callback']['url'])) &&
+                        isset($data['callback']['method']) && !empty($data['callback']['method'])) {
+                        $callback_data = ['result' => $request_res];
+                        if (isset($data['callback']['data'])) {
+                            $callback_data = array_merge($callback_data, $data['callback']['data']);
+                        }
+                        self::log($this->log_path, "INFO - notify callback data: {" . json_encode($callback_data) . "}");
 
-                    return $r;
+                        // 将拼多多订单状态查询接口的返回结果发回客户端指定的服务器
+                        $request_res = $this->remote_handler->$func_name(
+                            $data['callback']['url'], http_build_query($callback_data), $data['callback']['method'],
+                            isset($data['callback']['header']) ? $data['callback']['header'] : null,
+                            isset($data['callback']['option']) ? $data['callback']['option'] : null,
+                            'notifyClient'
+                        );
+
+                        self::log($this->log_path, "INFO - notify default: {" . json_encode($request_res) . "}");
+                    }
+
+                    return $request_res;
                 } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_user_address') {
                     $res = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
@@ -208,12 +220,43 @@ class Server
 
                         self::log($this->log_path, "INFO - pdd check_user_address: {" . json_encode($res) . "}");
 
-                        if ($data['callback']['data'])
+                        if ($data['callback']['data'] && is_array($data['callback']['data']))
                             $param = array_merge($data['callback']['data'], $res);
                         else
                             $param = $res;
 
                         self::log($this->log_path, "INFO - pdd check_user_address param: " . json_encode($param) . "");
+
+                        $rsa = RsaOperation::getInstance(Config::PUBLIC_PEM, Config::PRIVATE_PEM);
+
+                        $param = 'secret=' . urlencode($rsa->publicEncrypt($param));
+                    } else {
+                        self::log($this->log_path, "INFO - pdd check_user_address: {$res}");
+                        $param = $data['callback']['data'] . '&' . $res;
+                    }
+                    $r = $this->remote_handler->$func_name(
+                        $data['callback']['url'], $param, $data['callback']['method'],
+                        isset($data['callback']['headers']) ? $data['callback']['headers'] : [],
+                        isset($data['callback']['options']) ? $data['callback']['options'] : null,
+                        'notifyClient');
+
+                    return $r;
+                } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_goods_info') {
+                    $res = $this->remote_handler->$func_name(
+                        $param['url'], $param['data'], $param['method'], $param['headers'],
+                        isset($param['options']) ? $param['options'] : null, 'parsePddGoods');
+
+                    // 将拼多多收货地址接口的返回结果发回客户端指定的服务器
+                    if (strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
+
+                        self::log($this->log_path, "INFO - pdd check_goods_info: {" . json_encode($res) . "}");
+
+                        if ($data['callback']['data'] && is_array($data['callback']['data']))
+                            $param = array_merge($data['callback']['data'], $res);
+                        else
+                            $param = $res;
+
+                        self::log($this->log_path, "INFO - pdd check_goods_info param: " . json_encode($param) . "");
 
                         $rsa = RsaOperation::getInstance(Config::PUBLIC_PEM, Config::PRIVATE_PEM);
 
@@ -235,7 +278,24 @@ class Server
                         isset($param['headers']) ? $param['headers'] : [],
                         isset($param['options']) ? $param['options'] : null, 'notifyClient');
 
-                    self::log($this->log_path, "INFO - pdd default: {$res}");
+                    if (isset($data['callback'])) {
+                        if ((isset($data['callback']['url']) && !empty($data['callback']['url'])) &&
+                            isset($data['callback']['method']) && !empty($data['callback']['method'])) {
+
+                            $param_data = $data['callback']['data'];
+                            self::log($this->log_path, "INFO - notify callback data: {" . json_encode($param_data) . "}");
+                            $param_data['result'] = $res[0];
+                            self::log($this->log_path, "INFO - notify callback data: {" . json_encode($param_data) . "}");
+
+                            $res1 = $this->remote_handler->$func_name(
+                                $data['callback']['url'], http_build_query($param_data), $data['callback']['method'],
+                                isset($data['callback']['headers']) ? $data['callback']['headers'] : [],
+                                isset($data['callback']['options']) ? $data['callback']['options'] : null, 'notifyClient');
+                            self::log($this->log_path, "INFO - notify callback default: {" . json_encode($res1) . "}");
+                        }
+                    }
+
+                    self::log($this->log_path, "INFO - notify default: {" . json_encode($res) . "}");
 
                     return $res;
                 }
