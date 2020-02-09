@@ -7,5 +7,5 @@ tool=php
 # exec_dir=/path/to/project
 # tool=php
 
-file_name=remote.php
+file_name=/Users/huangxu/PhpstormProjects/remote.php
 $tool $file_name
