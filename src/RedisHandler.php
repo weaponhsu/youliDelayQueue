@@ -7,7 +7,6 @@ namespace src;
 use Redis;
 use Exception;
 use conf\Config;
-use server\Remote;
 use src\RequestHelper\RollingCurl;
 
 class RedisHandler
