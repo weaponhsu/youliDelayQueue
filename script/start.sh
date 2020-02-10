@@ -8,9 +8,11 @@ tool=php
 # tool=php
 
 # 启动生产者进程
-file_name=/Users/huangxu/PhpstormProjects/producer.php
+cd $exec_dir
+file_name=producer.php
 $tool $file_name
 
 # 启动消费者进程
-consumer_name=/Users/huangxu/PhpstormProjects/consumer.php
+cd $exec_dir
+consumer_name=consumer.php
 $tool $consumer_name
