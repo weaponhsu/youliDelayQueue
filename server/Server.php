@@ -184,13 +184,14 @@ class Server
                 $callback = null;
                 if ($data['platform'] == 'pdd' && $data['action'] == 'check_order_status') {
                     // 调用拼多多订单状态查询接口
-                    list($request_res, $request) = $this->remote_handler->$func_name(
+                    list($request_res, $request, $job_id) = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
-                        isset($param['options']) ? $param['options'] : null, 'pddOrderStatus');
+                        isset($param['options']) ? $param['options'] : null, 'parsePddOrderStatus');
 
                     self::log($this->log_path, "INFO - pdd check_order_status: {$request_res}, request: " . json_encode($request_res));
 
-                    if (isset($data['callback']) && (isset($data['callback']['url']) && !empty($data['callback']['url'])) &&
+                    if ($request_res !== false && isset($data['callback']) &&
+                        (isset($data['callback']['url']) && !empty($data['callback']['url'])) &&
                         isset($data['callback']['method']) && !empty($data['callback']['method'])) {
                         $callback_data = ['result' => $request_res];
                         if (isset($data['callback']['data'])) {
@@ -211,12 +212,12 @@ class Server
 
                     return $request_res;
                 } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_user_address') {
-                    $res = $this->remote_handler->$func_name(
+                    list($res, $req) = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
                         isset($param['options']) ? $param['options'] : null, 'parsePddAddress');
 
                     // 将拼多多收货地址接口的返回结果发回客户端指定的服务器
-                    if (strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
+                    if ($res !== false && strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
 
                         self::log($this->log_path, "INFO - pdd check_user_address: {" . json_encode($res) . "}");
 
@@ -234,6 +235,7 @@ class Server
                         self::log($this->log_path, "INFO - pdd check_user_address: {$res}");
                         $param = $data['callback']['data'] . '&' . $res;
                     }
+
                     $r = $this->remote_handler->$func_name(
                         $data['callback']['url'], $param, $data['callback']['method'],
                         isset($data['callback']['headers']) ? $data['callback']['headers'] : [],
@@ -242,12 +244,12 @@ class Server
 
                     return $r;
                 } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_goods_info') {
-                    $res = $this->remote_handler->$func_name(
+                    list($res, $req) = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
-                        isset($param['options']) ? $param['options'] : null, 'parsePddGoods');
+                        isset($param['options']) ? $param['options'] : null, 'parsePddGoods', time());
 
                     // 将拼多多收货地址接口的返回结果发回客户端指定的服务器
-                    if (strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
+                    if ($res !== false && strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
 
                         self::log($this->log_path, "INFO - pdd check_goods_info: {" . json_encode($res) . "}");
 
@@ -261,8 +263,9 @@ class Server
                         $rsa = RsaOperation::getInstance(Config::PUBLIC_PEM, Config::PRIVATE_PEM);
 
                         $param = 'secret=' . urlencode($rsa->publicEncrypt($param));
+                        self::log($this->log_path, "INFO - pdd param: {$param}");
                     } else {
-                        self::log($this->log_path, "INFO - pdd check_user_address: {$res}");
+                        self::log($this->log_path, "INFO - pdd check_goods_info: {$res}");
                         $param = $data['callback']['data'] . '&' . $res;
                     }
                     $r = $this->remote_handler->$func_name(

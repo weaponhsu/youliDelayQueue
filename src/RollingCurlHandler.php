@@ -13,6 +13,7 @@ class RollingCurlHandler
     static public $instance = null;
     private $log_path = null;
     private $rc = null;
+    private $job_id = null;
 
     /**
      * 设置RollingCurl的callback函数
@@ -58,11 +59,20 @@ class RollingCurlHandler
     }
 
     /**
+     * @param null $job_id
+     */
+    public function setJobId($job_id)
+    {
+        $this->job_id = $job_id;
+    }
+
+    /**
      * @param array $urls
      * @param array $methods
      * @param array $data
      * @param array $headers
      * @param array $options
+     * @param array $callback
      * @return array|bool
      * @throws RollingCurlException
      */
@@ -102,25 +112,34 @@ class RollingCurlHandler
      * @throws RollingCurlException
      */
     public function notifyClient($response, $info, $request) {
+        if (is_null($this->job_id))
+            return [false, $request, $this->job_id];
+
         self::log($this->log_path, "INFO - call notifyClient");
+        self::log($this->log_path, "INFO - job_id " . $this->job_id);
         self::log($this->log_path, "INFO - info " . json_encode($info));
         self::log($this->log_path, "INFO - request " . json_encode($request));
         self::log($this->log_path, "INFO - response " . $response);
 
         if ($info['http_code'] != '200')
-            throw new RollingCurlException("http code不为200");
+            self::log($this->log_path, "ERROR - error: http code不为200");
 
-        return in_array($response, ['error', 'success']) === true ? [$response, $request] : false;
+        return in_array($response, ['error', 'success']) === true ? [$response, $request, $this->job_id] : [false, $request, $this->job_id];
     }
 
     public function parsePddGoods($response, $info, $request) {
+        if (is_null($this->job_id))
+            return [false, $request];
+
         self::log($this->log_path, "INFO - call parsePddGoods");
+        self::log($this->log_path, "INFO - job_id " . $this->job_id);
         self::log($this->log_path, "INFO - info " . json_encode($info));
         self::log($this->log_path, "INFO - request " . json_encode($request));
         self::log($this->log_path, "INFO - response " . json_encode($response));
 
         if ($info['http_code'] != '200')
-            throw new RollingCurlException("http code不为200");
+            self::log($this->log_path, "ERROR - error: http code不为200");
+//            throw new RollingCurlException("http code不为200");
 
         if (preg_match('/window.rawData=(.*)"}}};/', $response, $matches)) {
             self::log($this->log_path, "INFO - matches " . json_encode($matches));
@@ -135,21 +154,31 @@ class RollingCurlHandler
                     'normal_price' => $data['store']['initDataObj']['goods']['skus'][0]['normalPrice']
                 ];
                 self::log($this->log_path, "INFO - goods data " . json_encode($goods_data));
-                return $goods_data;
+//                return $goods_data;
+                return [$goods_data, $request];
             } else
-                throw new RollingCurlException("无法登陆并获取收货地址");
+                self::log($this->log_path, "ERROR - error: 无法登陆并获取商品信息");
+//                throw new RollingCurlException("无法登陆并获取收货地址");
         } else
-            throw new RollingCurlException("未知状态");
+            self::log($this->log_path, "ERROR - error: 未知状态");
+//            throw new RollingCurlException("未知状态");
+
+        return [false, $request];
     }
 
     public function parsePddAddress($response, $info, $request) {
+        if (is_null($this->job_id))
+            return [false, $request];
+
         self::log($this->log_path, "INFO - call parsePddAddress");
+        self::log($this->log_path, "INFO - job_id " . $this->job_id);
         self::log($this->log_path, "INFO - info " . json_encode($info));
         self::log($this->log_path, "INFO - request " . json_encode($request));
         self::log($this->log_path, "INFO - response " . json_encode($response));
 
         if ($info['http_code'] != '200')
-            throw new RollingCurlException("http code不为200");
+            self::log($this->log_path, "ERROR - error: http code不为200");
+//            throw new RollingCurlException("http code不为200");
 
         if (preg_match('/window.rawData=(.*)"}};/', $response, $matches)) {
             $data = $matches[1] . '"}}';
@@ -164,11 +193,16 @@ class RollingCurlHandler
                         ];
                     }
                 }
-                return $address_arr;
+//                return $address_arr;
+                return [$address_arr, $request];
             } else
-                throw new RollingCurlException("无法登陆并获取收货地址");
+                self::log($this->log_path, "ERROR - error: 无法登陆并获取收货地址");
+//                throw new RollingCurlException("无法登陆并获取收货地址");
         } else
-            throw new RollingCurlException("未知状态");
+            self::log($this->log_path, "ERROR - error: 未知状态");
+//            throw new RollingCurlException("未知状态");
+
+        return [false, $request];
     }
 
     /**
@@ -180,18 +214,29 @@ class RollingCurlHandler
      * @throws RollingCurlException
      */
     public function parsePddOrderStatus($response, $info, $request) {
+        if (is_null($this->job_id))
+            return [false, $request, null];
+
         self::log($this->log_path, "INFO - call parsePddOrderStatus");
+        self::log($this->log_path, "INFO - job_id " . $this->job_id);
         self::log($this->log_path, "INFO - info " . json_encode($info));
         self::log($this->log_path, "INFO - request " . json_encode($request));
         self::log($this->log_path, "INFO - response " . json_encode($response));
 
-        if ($info['http_code'] != '200')
-            throw new RollingCurlException("http code不为200");
+        if ($info['http_code'] != '200') {
+            self::log($this->log_path, "ERROR - error: http code不为200");
+            return [false, $request, $this->job_id];
+//            throw new RollingCurlException("http code不为200");
+        }
 
-        if (! preg_match('/"chatStatusPrompt":"([^"]*)"/', $response, $matches))
-            throw new RollingCurlException("未知状态");
+        if (! preg_match('/"chatStatusPrompt":"([^"]*)"/', $response, $matches)) {
+            self::log($this->log_path, "ERROR - matches " . json_encode($matches));
+            self::log($this->log_path, "ERROR - error: 未知状态");
+//            throw new RollingCurlException("未知状态");
+            return [false, $request, $this->job_id];
+        }
 
-        return [$matches[1], $request];
+        return [$matches[1], $request, $this->job_id];
     }
 
     static protected function log($log_path = null, $content = '') {

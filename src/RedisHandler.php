@@ -45,6 +45,7 @@ class RedisHandler
 
         $this->connect();
         $res = $this->redis->hGetAll($key);
+        self::log($this->consumer_log_path, "INFO - key: " . $key . ', res: ' . json_encode($res));
 
         $job_id_arr = $urls = $data = $headers = $options = $methods = $callback = $curl_res = $notify_info = [];
         if ($res) {
@@ -75,63 +76,78 @@ class RedisHandler
             $this->redis->del($key);
 
             $rc = new RollingCurlHandler();
-            $rc->setCallback("notifyClient");
+//            $rc->setCallback("notifyClient");
             $curl_res = null;
 
-            if (count($job_id_arr) == 1) {
-                $curl_res[] = $rc->run($urls[0], $methods[0], $data[0], !empty($headers) ? $headers[0] : $headers, $options[0]);
-            } else if (count($job_id_arr) >= 2) {
-                $curl_res = $rc->multiRun($urls, $methods, $data, $headers, $options);
+            foreach ($urls as $idx => $url) {
+                $rc->setJobId($job_id_arr[$idx]);
+                $rc->setCallback($callback[$idx] ? $callback[$idx] : 'notifyClient');
+                $curl_res[] = $rc->run($url, $methods[$idx], $data[$idx], !empty($headers) ? $headers[$idx] : $headers, $options[$idx]);
             }
+
+//            if (count($job_id_arr) == 1) {
+//                $rc->setJobId($job_id_arr[0]);
+//                $rc->setCallback($callback[0] ? $callback[0] : 'notifyClient');
+//                $curl_res[] = $rc->run($urls[0], $methods[0], $data[0], !empty($headers) ? $headers[0] : $headers, $options[0]);
+//            } else if (count($job_id_arr) >= 2) {
+//                $curl_res = $rc->multiRun($urls, $methods, $data, $headers, $options);
+//            }
             self::log($this->consumer_log_path, "INFO - request_result: " . json_encode($curl_res));
             self::log($this->consumer_log_path, "DEBUG - curl_res length: " . count($curl_res));
         }
 
         if ($curl_res) {
             foreach ($curl_res as $idx => $request_result) {
-                list($request_res, $request) = $request_result;
+                list($request_res, $request, $job_id) = $request_result;
                 self::log($this->consumer_log_path, "INFO - idx: " . $idx . ". request: " . json_encode($request) . ". response: " . json_encode($request_res));
-                $data_idx = array_search($request->post_data, $data);
-                self::log($this->consumer_log_path, "INFO - data_idx: " . json_encode($data_idx));
-                if ($request_res == 'success') {
-                    self::log($this->consumer_log_path, "INFO - remote return success");
-                    // 远程接口返回的结果需要转发到另一台服务器
-                    if (false !== $notify = $notify_info[$data_idx]) {
-                        $notify = $notify_info[$data_idx];
-                        self::log($this->consumer_log_path, "INFO - notify info: " . json_encode($notify));
-                        self::log($this->consumer_log_path, "INFO - notify info: " . json_encode([isset($notify['url']) && !empty($notify['url']),
-                                isset($notify['method']) && !empty($notify['method'])]));
-                        if ((isset($notify['url']) && !empty($notify['url'])) &&
-                            (isset($notify['method']) && !empty($notify['method']))) {
+//                $data_idx = array_search($request->post_data, $data);
+                $job_id_idx = array_search($job_id, $job_id_arr);
+                self::log($this->consumer_log_path, "INFO - job_id_idx: " . json_encode($job_id_idx));
+                self::log($this->consumer_log_path, "INFO - remote return " . $request_res);
+                // 远程接口返回的结果需要转发到另一台服务器
+                if (false !== $job_id_idx && ($request_res == 'success' || preg_match('/^[\x{4e00}-\x{9fa5}]+$/u', $request_res))) {
+                    $notify = $notify_info[$job_id_idx];
+                    self::log($this->consumer_log_path, "INFO - notify info: " . json_encode($notify));
+                    self::log($this->consumer_log_path, "INFO - notify info: " . json_encode([isset($notify['url']) && !empty($notify['url']),
+                            isset($notify['method']) && !empty($notify['method'])]));
+                    if ((isset($notify['url']) && !empty($notify['url'])) &&
+                        (isset($notify['method']) && !empty($notify['method']))) {
 
-                            $data = [];
-                            if (isset($notify['data'])) {
-                                $data = $notify['data'];
-                                $data['result'] = $request_res;
-                            }
-                            self::log($this->consumer_log_path, "INFO - notify data: " . json_encode($data));
-
-                            $remote_result = RemoteHandler::getInstance()->callRemote($notify['url'], http_build_query($data),
-                                $notify['method'],
-                                isset($notify['header']) ? $notify['header'] : [],
-                                isset($notify['option']) ? $notify['option'] : null,
-                                isset($notify['callback']) ? $notify['callback'] : 'notifyClient');
-
-                            self::log($this->consumer_log_path, "INFO - notify result: " . json_encode($remote_result));
+                        $data = [];
+                        if (isset($notify['data'])) {
+                            $data = $notify['data'];
+                            $data['result'] = $request_res;
                         }
+                        self::log($this->consumer_log_path, "INFO - notify data: " . json_encode($data));
+
+                        list($remote_result, $remote_request, $notify_client_job_id) = RemoteHandler::getInstance()->callRemote($notify['url'], http_build_query($data),
+                            $notify['method'],
+                            isset($notify['header']) ? $notify['header'] : [],
+                            isset($notify['option']) ? $notify['option'] : null,
+                            isset($notify['callback']) ? $notify['callback'] : 'notifyClient',
+                            $job_id_arr[$job_id_idx]);
+
+
+                        self::log($this->consumer_log_path, "INFO - remote result: " . json_encode([$remote_result, $remote_request, $notify_client_job_id]));
+                        self::log($this->consumer_log_path, "INFO - notify result: " . json_encode($remote_result));
+
+                        if ($remote_result !== false)
+                            continue;
                     }
-                    continue;
+
+//                    if (! preg_match('/^[\x{4e00}-\x{9fa5}]+$/u', $request_res))
+//                        continue;
                 }
 
-                self::log($this->consumer_log_path, "INFO - urls: " . json_encode([$urls[$data_idx], $request->url, $urls[$data_idx] == $request->url]));
+                self::log($this->consumer_log_path, "INFO - urls: " . json_encode([$urls[$job_id_idx], $request->url, $urls[$job_id_idx] == $request->url]));
 
-                if ($data_idx === false && $urls[$data_idx] !== $request->url) {
+                if ($job_id_idx === false && $urls[$job_id_idx] !== $request->url) {
                     self::log($this->consumer_log_path, "ERROR - remote return success");
                     continue;
                 }
 
-                $job_id = isset($job_id_arr[$data_idx]) ? $job_id_arr[$data_idx] : false;
-                self::log($this->consumer_log_path, "INFO - job_id: " . $job_id);
+//                $job_id = isset($job_id_arr[$job_id_idx]) ? $job_id_arr[$job_id_idx] : false;
+                self::log($this->consumer_log_path, "INFO - job_id: " . $job_id_arr[$job_id_idx]);
                 if ($job_id === false) {
                     self::log($this->consumer_log_path, "ERROR - job_id not exists");
                     continue;

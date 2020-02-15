@@ -41,9 +41,10 @@ class RemoteHandler
      * @param array $headers
      * @param null $option
      * @param null $callback
+     * @param null $job_id
      * @return bool|string|null
      */
-    public function callRemote($url, $data, $method = 'GET', $headers = [], $option = null, $callback = null) {
+    public function callRemote($url, $data, $method = 'GET', $headers = [], $option = null, $callback = null, $job_id = null) {
         self::log($this->log_path, "INFO - call remote: param: " . json_encode(func_get_args()));
         self::log($this->log_path, "INFO - call remote: url: $url, data:" . json_encode($data) . ", method: $method, headers:" . json_encode($headers));
         $email_address = $result = null;
@@ -56,10 +57,11 @@ class RemoteHandler
 
             // 调用接口 获取返回结果
             $this->rc->setCallback($callback);
+            $this->rc->setJobId(is_null($job_id) ? $job_id : time());
             $result = $this->rc->run($url, $method, $data, $headers, $option);
             self::log($this->log_path, "INFO - response status:" . json_encode($result));
 
-            // 设置邮件内容
+            // 设置邮件内容1
             $email_address = '234769003@qq.com';
             $subject = '数据采集成功';
             $body = '123';
