@@ -290,6 +290,7 @@ class RedisHandler
     public function connect() {
         if (! $this->redis->isConnected())
             $this->redis->connect(Config::REDIS_HOST, Config::REDIS_PORT);
+        $this->redis->auth(Config::REDIS_AUTH);
     }
 
     public function close() {

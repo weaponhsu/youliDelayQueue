@@ -27,7 +27,7 @@ class Config
     // redis服务端配置
     const REDIS_HOST = '127.0.0.1';
     const REDIS_PORT = '6379';
-    const REDIS_AUTH = '';
+    const REDIS_AUTH = 'foobared';
 
     // 邮件配置
     const SMTP_SERVER = 'smtp.163.com';
