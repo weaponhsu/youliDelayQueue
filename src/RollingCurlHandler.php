@@ -188,11 +188,11 @@ class RollingCurlHandler
                     if ($address['isDefault'] == 1) {
                         $address_arr = [
                             'address_id' => $address['addressId'],
-                            'address' => $address['province'] . $address['city'] . $address['district'] . $address['address'],
-                            'uid' => $address['uid']
+                            'address' => $address['province'] . $address['city'] . $address['district'] . $address['address']
                         ];
                     }
                 }
+                $address_arr['uid'] = $data['store']['uid'];
 //                return $address_arr;
                 return [$address_arr, $request];
             } else

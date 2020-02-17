@@ -214,7 +214,7 @@ class Server
                 } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_user_address') {
                     list($res, $req) = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
-                        isset($param['options']) ? $param['options'] : null, 'parsePddAddress');
+                        isset($param['options']) ? $param['options'] : null, 'parsePddAddress', time() . $data['action']);
 
                     // 将拼多多收货地址接口的返回结果发回客户端指定的服务器
                     if ($res !== false && strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
@@ -246,7 +246,7 @@ class Server
                 } else if ($data['platform'] == 'pdd' && $data['action'] == 'check_goods_info') {
                     list($res, $req) = $this->remote_handler->$func_name(
                         $param['url'], $param['data'], $param['method'], $param['headers'],
-                        isset($param['options']) ? $param['options'] : null, 'parsePddGoods', time());
+                        isset($param['options']) ? $param['options'] : null, 'parsePddGoods', time() . $data['action']);
 
                     // 将拼多多收货地址接口的返回结果发回客户端指定的服务器
                     if ($res !== false && strpos($data['callback']['url'], Config::SECRET_DOMAIN) !== false && is_array($data)) {
