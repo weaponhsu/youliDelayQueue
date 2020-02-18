@@ -8,6 +8,7 @@ use Redis;
 use Exception;
 use conf\Config;
 use src\RequestHelper\RollingCurl;
+use youliPhpLib\Common\RsaOperation;
 
 class RedisHandler
 {
@@ -105,7 +106,7 @@ class RedisHandler
                 self::log($this->consumer_log_path, "INFO - job_id_idx: " . json_encode($job_id_idx));
                 self::log($this->consumer_log_path, "INFO - remote return " . $request_res);
                 // 远程接口返回的结果需要转发到另一台服务器
-                if (false !== $job_id_idx && ($request_res == 'success' || preg_match('/^[\x{4e00}-\x{9fa5}]+$/u', $request_res))) {
+                if (false !== $job_id_idx && ($request_res == 'success' || preg_match("/[\x7f-\xff]/", $request_res)/*preg_match('/^[\x{4e00}-\x{9fa5}]+$/u', $request_res)*/)) {
                     $notify = $notify_info[$job_id_idx];
                     self::log($this->consumer_log_path, "INFO - notify info: " . json_encode($notify));
                     self::log($this->consumer_log_path, "INFO - notify info: " . json_encode([isset($notify['url']) && !empty($notify['url']),
@@ -117,10 +118,17 @@ class RedisHandler
                         if (isset($notify['data'])) {
                             $data = $notify['data'];
                             $data['result'] = $request_res;
+                            $param = http_build_query($data);
                         }
                         self::log($this->consumer_log_path, "INFO - notify data: " . json_encode($data));
 
-                        list($remote_result, $remote_request, $notify_client_job_id) = RemoteHandler::getInstance()->callRemote($notify['url'], http_build_query($data),
+                        if (strpos($notify['url'], '/v3/order/edit') !== false) {
+                            $rsa = RsaOperation::getInstance(Config::PUBLIC_PEM, Config::PRIVATE_PEM);
+                            $param = 'secret=' . urlencode($rsa->publicEncrypt($data));
+                            self::log($this->consumer_log_path, "INFO - encrypt data: " . $param);
+                        }
+
+                        list($remote_result, $remote_request, $notify_client_job_id) = RemoteHandler::getInstance()->callRemote($notify['url'], $param,
                             $notify['method'],
                             isset($notify['header']) ? $notify['header'] : [],
                             isset($notify['option']) ? $notify['option'] : null,
@@ -154,35 +162,37 @@ class RedisHandler
                 }
 
                 self::log($this->consumer_log_path, "INFO - order_data: " . $res[$job_id]);
-                $order_data = json_decode($res[$job_id], true);
+                if (isset($res[$job_id])) {
+                    $order_data = json_decode($res[$job_id], true);
 
-                switch ($order_data['delay']) {
-                    case 0:
-                        $delay = 60;
-                        break;
-                    case 60:
-                        $delay = 300;
-                        break;
-                    case 300:
-                        $delay = 600;
-                        break;
-                    case 900:
-                        $delay = 1800;
-                        break;
-                    case 1800:
-                        $delay = 3600;
-                        break;
-                    default:
-                        $delay = false;
-                        break;
-                }
+                    switch ($order_data['delay']) {
+                        case 0:
+                            $delay = 60;
+                            break;
+                        case 60:
+                            $delay = 300;
+                            break;
+                        case 300:
+                            $delay = 600;
+                            break;
+                        case 900:
+                            $delay = 1800;
+                            break;
+                        case 1800:
+                            $delay = 3600;
+                            break;
+                        default:
+                            $delay = false;
+                            break;
+                    }
 
-                if ($delay !== false) {
-                    $order_data['delay'] = $delay;
-                    self::log($this->consumer_log_path, "INFO - delay: $delay");
-                    self::log($this->consumer_log_path, "INFO - key: " . (int)($key + $delay));
-                    $this->redis->HSetnx((int)($key + $delay), $job_id, json_encode($order_data));
-                    $this->redis->expire((int)($key + $delay), (string)($key + $delay + 120));
+                    if ($delay !== false) {
+                        $order_data['delay'] = $delay;
+                        self::log($this->consumer_log_path, "INFO - delay: $delay");
+                        self::log($this->consumer_log_path, "INFO - key: " . (int)($key + $delay));
+                        $this->redis->HSetnx((int)($key + $delay), $job_id, json_encode($order_data));
+                        $this->redis->expire((int)($key + $delay), (string)($key + $delay + 120));
+                    }
                 }
             }
         } else
@@ -191,84 +201,6 @@ class RedisHandler
         $this->close();
 
         self::log($this->consumer_log_path, "INFO - RESULT: " . json_encode($result));
-    }
-
-    public function pop1() {
-        self::log($this->consumer_log_path, 'INFO - PARAM: consumer' . time());
-
-        $key = strtotime(date('Y-m-d H:i:00', time()));
-
-//        $client = Remote::getInstance();
-        $rc = new RollingCurl();
-        $this->connect();
-        $this->redis->multi();
-        $this->redis->hGetAll($key);
-        $this->redis->del($key);
-        $result = $this->redis->exec();
-        $this->close();
-
-        $this->connect();
-        $this->redis->multi();
-        foreach ($result[0] as $job_id => $order_string) {
-            $order_data = json_decode($order_string, true);
-
-            try {
-//                throw new Exception('ddd');
-                // 调用接口 获取返回结果
-
-                self::log($this->log_path, "INFO - request data: " . json_encode($order_data));
-                $rc->request(
-                    $order_data['method'] == 'get' ? $order_data['url'] . '?' . $order_data['data'] : $order_data['url'],
-                    $order_data['method'],
-                    $order_data['method'] == 'get' ? [] : $order_data['data'],
-                    isset($order_data['headers']) ? $order_data['headers'] : [],
-                    isset($order_data['options']) ? $order_data['options'] : null);
-                list($info, $response) = $rc->execute();
-                self::log($this->log_path, "INFO - response header: " . json_encode($info) . " response body: " . $response);
-            } catch (Exception $e) {
-                // 设置邮件内容
-                /*$email_address = '234769003@qq.com';
-                $subject = '数据读取失败';
-                $body = $e->getMessage();
-                EmailHandler::getInstance()->mail($email_address, $subject, $body);*/
-
-                switch ($order_data['delay']) {
-                    case 0:
-                        $delay = 60;
-                        break;
-                    case 60:
-                        $delay = 300;
-                        break;
-                    case 300:
-                        $delay = 600;
-                        break;
-                    case 900:
-                        $delay = 1800;
-                        break;
-                    case 1800:
-                        $delay = 3600;
-                        break;
-                    default:
-                        $delay = false;
-                        break;
-                }
-
-                if ($delay !== false) {
-                    $order_data['delay'] = $delay;
-                    self::log($this->consumer_log_path, "INFO - delay: $delay");
-                    self::log($this->consumer_log_path, "INFO - key: " . (int)($key + $delay));
-                    $this->redis->HSetnx((int)($key + $delay), $job_id, json_encode($order_data));
-                    $this->redis->expire((int)($key + $delay), (string)($key + $delay + 120));
-                }
-
-            } finally {
-                $result = $this->redis->exec();
-                $this->close();
-//                self::log($this->consumer_log_path, "ERROR - RESET DELAY FAILED: " . json_encode($query_param));
-            }
-        }
-
-        self::log($this->consumer_log_path, "INFO - RES: " . json_encode($result));
     }
 
     public function add($param = []) {

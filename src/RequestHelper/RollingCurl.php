@@ -282,8 +282,8 @@ class RollingCurl {
         }
         $headers = $this->__get('headers');
         // 将类中的header与$request中的header进行合并
-//        if (!empty($request->headers))
-//            $headers = array_merge($request->headers, $headers);
+        if (!empty($request->headers))
+            $headers = array_merge($request->headers, $headers);
         // append custom options for this specific request
         if ($request->options) {
             $options = $request->options + $options;

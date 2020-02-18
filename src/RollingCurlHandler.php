@@ -31,6 +31,9 @@ class RollingCurlHandler
             case 'parsePddGoods':
                 $callback_func = [$this, 'parsePddGoods'];
                 break;
+            case 'parseConfirmOrder':
+                $callback_func = [$this, 'parseConfirmOrder'];
+                break;
             // 默认调用pdd单比订单状态查询
             default:
                 $callback_func = [$this, 'parsePddOrderStatus'];
@@ -72,7 +75,6 @@ class RollingCurlHandler
      * @param array $data
      * @param array $headers
      * @param array $options
-     * @param array $callback
      * @return array|bool
      * @throws RollingCurlException
      */
@@ -164,6 +166,30 @@ class RollingCurlHandler
 //            throw new RollingCurlException("未知状态");
 
         return [false, $request];
+    }
+
+    public function parseConfirmOrder($response, $info, $request) {
+        if (is_null($this->job_id))
+            return [false, $request];
+
+        self::log($this->log_path, "INFO - call parsePddGoods");
+        self::log($this->log_path, "INFO - job_id " . $this->job_id);
+        self::log($this->log_path, "INFO - info " . json_encode($info));
+        self::log($this->log_path, "INFO - request " . json_encode($request));
+        self::log($this->log_path, "INFO - response " . json_encode($response));
+
+        $response_arr = json_decode($response, true);
+
+        // 测试用
+        $response = (isset($response_arr['error_msg']) ? $response_arr['error_msg'] : '') . '-' . (string)$response_arr['error_code'];
+        /*if (isset($response_arr['error_msg']))
+            $response = $response_arr['error_msg'];
+        else if (isset($response_arr['error_code']))
+            $response = '-' .(string)$response_arr['error_msg'];*/
+
+        return [$response, $request, $this->job_id];
+//        return [false, $response];
+
     }
 
     public function parsePddAddress($response, $info, $request) {
