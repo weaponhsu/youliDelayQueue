@@ -1,32 +1,4 @@
 <?php
-/**
- *
- *            ┏┓　　  ┏┓+ +
- *           ┏┛┻━━━━━┛┻┓ + +
- *           ┃         ┃ 　
- *           ┃   ━     ┃ ++ + + +
- *          ████━████  ┃+
- *           ┃　　　　　 ┃ +
- *           ┃　　　┻　　┃
- *           ┃　　　　　 ┃ + +
- *           ┗━┓　　　┏━┛
- *             ┃　　　┃　　　　
- *             ┃　　　┃ + + + +
- *             ┃　　　┃    Code is far away from bug with the alpaca protecting
- *             ┃　　　┃ + 　　　　        神兽保佑,代码无bug
- *             ┃　　　┃
- *             ┃　　　┃　　+
- *             ┃     ┗━━━┓ + +
- *             ┃         ┣┓
- *             ┃ 　　　　　┏┛
- *             ┗┓┓┏━━┳┓┏━┛ + + + +
- *              ┃┫┫  ┃┫┫
- *              ┗┻┛  ┗┻┛+ + + +
- * Created by PhpStorm.
- * User: weaponhsu
- * Date: 2019/2/2
- * Time: 10:19 AM
- */
 
 namespace server;
 
@@ -72,6 +44,8 @@ class Server
             'max_request' => 10000,
             'task_worker_num' => 1,
             'task_ipc_mode' => 1,
+            'log_level' => 0,
+            'dispatch_mode' => 1,
             'log_file' => $this->log_path
         ]);
 
@@ -141,10 +115,10 @@ class Server
 
         // send a task to task worker.
         if ($data_arr['command'] == 'pop') {
-            self::log($this->log_path, "INFO - Consumer will be executed in 60 seconds later");
-            $server->tick(60000, function () use (&$server, &$data, &$fd) {
-                $server->task($data);
-            });
+//            self::log($this->log_path, "INFO - Consumer will be executed in 60 seconds later");
+//            $server->tick(60000, function () use (&$server, &$data, &$fd) {
+//                $server->task($data);
+//            });
         } else
             $server->task($data);
     }
@@ -170,7 +144,15 @@ class Server
             if (isset($data['data'])) {
                 $param = $data['data'];
                 self::log($this->log_path, "INFO - CALL " . $func_name . ". PARAM: " . json_encode($param));
-                $this->redis_handler->$func_name($param);
+                if (isset($data['data']['delay'])) {
+                    $reds_handler = $this->redis_handler;
+                    $server->after((int)$data['data']['delay'] * 1000, function () use (&$reds_handler, &$param, &$func_name) {
+                        self::log($this->log_path, "INFO - CALL {" . get_class($reds_handler) . "}. PARAM: " . json_encode($param));
+                        $reds_handler->$func_name($param);
+                    });
+                }
+                else
+                    $this->redis_handler->$func_name($param);
             } else {
                 self::log($this->log_path, "INFO - CALL " . $func_name);
                 $this->redis_handler->$func_name();

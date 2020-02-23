@@ -219,6 +219,71 @@ class RedisHandler
         self::log($this->log_path, "INFO - RES: " . json_encode([$result]));
     }
 
+    public function after($param = []) {
+        self::log($this->consumer_log_path, 'INFO - PARAM: after' . time());
+        $key = strtotime(date('Y-m-d H:i:00', time()));
+        self::log($this->consumer_log_path, "INFO - key: " . $key . ', res: ' . json_encode($param));
+
+        self::log($this->consumer_log_path, "INFO - job_id_arr: " . $param['job_id']);
+        self::log($this->consumer_log_path, "INFO - callback: " . $param['callback']);
+        self::log($this->consumer_log_path, "INFO - urls: " . $param['url']);
+        self::log($this->consumer_log_path, "INFO - methods: " . $param['method']);
+        self::log($this->consumer_log_path, "INFO - data: " . $param['data']);
+        self::log($this->consumer_log_path, "INFO - headers: " . json_encode($param['header']));
+        self::log($this->consumer_log_path, "INFO - options: " . json_encode($param['options']));
+        self::log($this->consumer_log_path, "INFO - notify_info: " . json_encode($param['notify_info']));
+
+        $rc = new RollingCurlHandler();
+
+        $rc->setJobId($param['job_id']);
+        $rc->setCallback($param['callback'] ? $param['callback'] : 'notifyClient');
+        $res = $rc->run($param['url'], $param['method'], $param['data'],
+            !empty($param['headers']) ? $param['headers'] : [],
+            $param['options']);
+        self::log($this->consumer_log_path, "INFO - res: " . json_encode($res));
+        list($request_res, $request, $job_id) = $res;
+
+        self::log($this->consumer_log_path, "INFO - job_id: " . $job_id);
+        self::log($this->consumer_log_path, "INFO - request: " . json_encode($request));
+        self::log($this->consumer_log_path, "INFO - request_res: " . $request_res);
+
+        if ($request_res == 'success' || preg_match("/[\x7f-\xff]/", $request_res)) {
+
+            $notify = $param['notify_info'];
+
+            if (isset($notify['url']) && !empty($notify['url']) && isset($notify['method']) && !empty($notify['method'])) {
+                $data = [];
+                $param = '';
+                if (isset($notify['data'])) {
+                    $data = $notify['data'];
+                    $data['result'] = $request_res;
+                    $param = http_build_query($data);
+                }
+                self::log($this->consumer_log_path, "INFO - notify param: " . $param);
+
+                if (strpos($notify['url'], '/v3/order/edit') !== false) {
+                    $rsa = RsaOperation::getInstance(Config::PUBLIC_PEM, Config::PRIVATE_PEM);
+                    $param = 'secret=' . urlencode($rsa->publicEncrypt($data));
+                    self::log($this->consumer_log_path, "INFO - encrypt data: " . $param);
+                }
+
+                $rc->setJobId(date('Y-m-d H:i:s', time()));
+                $rc->setCallback($notify['callback'] ? $notify['callback'] : 'notifyClient');
+                list($notify_result, $notify_request, $notify_job_id) = $rc->run($notify['url'], $notify['method'], $param,
+                    !empty($notify['headers']) ? $notify['headers'] : [],
+                    $notify['options']);
+
+                self::log($this->consumer_log_path, "INFO - notify_job_id: " . $notify_job_id);
+                self::log($this->consumer_log_path, "INFO - notify_result: " . $notify_result);
+                self::log($this->consumer_log_path, "INFO - notify_request: " . json_encode($notify_request));
+            }
+        }
+
+        self::log($this->consumer_log_path, 'INFO - RES: after' . json_encode($res));
+
+        return $key;
+    }
+
     public function connect() {
         if (! $this->redis->isConnected())
             $this->redis->connect(Config::REDIS_HOST, Config::REDIS_PORT);
